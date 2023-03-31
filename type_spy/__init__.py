@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: MIT
 
 from __future__ import annotations
+from ast import Param
 from typing import cast
 
 import lark
@@ -36,10 +37,12 @@ l = lark.Lark(
     params: type? ("," type)*
     vargs: "*" type
     kwargs: "**" type
-    keyword_only_params: type? ("," type)*
+    keyword_only_params: "*" "," type? ("," type)*
+
+    return_ty: type
 
     signature_parameters: "(" pos_only_params? params vargs? kwargs? keyword_only_params? ")"
-    signature: signature_parameters ("->" type)?
+    signature: signature_parameters ("->" return_ty)?
 
     meta_type_variables: "[" type_variable ("," type_variable)* "]"
 
@@ -53,7 +56,22 @@ l = lark.Lark(
 )
 
 
-class SignatureTransformer(lark.Transformer):
+class SignatureTransformer(lark.Transformer):#
+    def pos_only_params(self, tokens: list[Type]):
+        return ("pos_only", tokens)
+
+    def params(self, tokens: list[Type]):
+        return ("params", tokens)
+
+    def vargs(self, token: Type):
+        return ("vargs", token)
+
+    def kwargs(self, token: Type):
+        return ("kwargs", token)
+
+    def keyword_only_params(self, tokens: list[Type]):
+        return ("keyword_only", tokens)
+
     def typevar(self, tokens: list[lark.Token]):
         return TypeVar(tokens[0].value)
 
@@ -69,8 +87,11 @@ class SignatureTransformer(lark.Transformer):
     def type_variable(self, tokens: list[TypeVariable]):
         return tokens[0]
 
-    def signature_parameters(self, tokens: list[Type]):
-        return tokens
+    def return_ty(self, token: Type):
+        return ("rt", token)
+
+    def signature_parameters(self, tokens: list[Parameters]):
+        return ("parameters", SignatureParameters(**dict(tokens)))  # type: ignore
 
     def parens(self, tokens: list[Type]):
         return tokens[0]
@@ -87,16 +108,11 @@ class SignatureTransformer(lark.Transformer):
     def meta_type_variables(self, tokens: list[BaseTypeVar]):
         return MetaTypeVars(tokens)
 
-    def signature(self, tokens: list[list[Type] | Type]):
-        if tokens and isinstance(tokens[-1], Type):
-            rt = tokens[-1]
-            parameters = cast(list[Type], tokens[0])
+    def signature(self, tokens: list[tuple[Literal["parameters"], SignatureParameters] | tuple[Literal["rt"], Type]]):
+        if len(tokens) == 2:
+            return Signature(**dict(tokens))  # type: ignore
 
-        else:
-            rt = Ident("None")
-            parameters = cast(list[Type], tokens)
-
-        return Signature(parameters, rt)
+        return Signature(cast(SignatureParameters, tokens[0][1]), rt=Ident("None"))
 
     def start(self, tokens: list[MetaTypeVars | Signature]):
         if isinstance(tokens[0], MetaTypeVars):

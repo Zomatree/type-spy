@@ -3,9 +3,7 @@
 # SPDX-License-Identifier: MIT
 
 from __future__ import annotations
-from typing import TypeAlias, Union as _Union
-
-from spec import Any
+from typing import Literal, TypeAlias, Union as _Union, Any
 
 
 class Generic:
@@ -16,7 +14,7 @@ class Generic:
     def __repr__(self):
         return f"{self.ty}[{', '.join(map(repr, self.generics))}]"
 
-    def __eq__(self, other):
+    def __eq__(self, other: Any):
         return isinstance(other, self.__class__) and self.ty == other.ty and self.generics == other.generics
 
 
@@ -27,7 +25,7 @@ class Ident:
     def __repr__(self):
         return self.ty
 
-    def __eq__(self, other):
+    def __eq__(self, other: Any):
         return isinstance(other, self.__class__) and self.ty == other.ty
 
 
@@ -38,7 +36,7 @@ class List:
     def __repr__(self):
         return f"[{', '.join(map(repr, self.values))}]"
 
-    def __eq__(self, other):
+    def __eq__(self, other: Any):
         return isinstance(other, self.__class__) and self.values == other.values
 
 
@@ -78,6 +76,12 @@ class Union:
 
 TypeVariable: TypeAlias = TypeVar | TypeVarTuple | ParamSpec
 Type: TypeAlias = _Union[Generic, Ident, List, BaseTypeVar, Union, "Signature"]
+Parameters = (tuple[Literal["pos_only"], list[Type]]
+    | tuple[Literal["params"], list[Type]]
+    | tuple[Literal["vargs"], Type]
+    | tuple[Literal["kwargs"], Type]
+    | tuple[Literal["keyword_only"], Type]
+)
 
 class MetaTypeVars:
     def __init__(self, generics: list[BaseTypeVar]):
@@ -89,13 +93,29 @@ class MetaTypeVars:
     def __eq__(self, other: Any):
         return isinstance(other, self.__class__) and self.generics == other.generics
 
+class SignatureParameters:
+    def __init__(self, pos_only: list[Type], params: list[Type], vargs: Type | None, kwargs: Type | None, kwarg_only: list[Type]) -> None:
+        self.pos_only = pos_only
+        self.params = params
+        self.vargs = vargs
+        self.kwargs = kwargs
+        self.kwarg_only = kwarg_only
+
+    def __eq__(self, other: Any):
+        return isinstance(other, self.__class__) and self.pos_only == other.pos_only and self.params == other.params and self.vargs == other.vargs and self.kwargs == other.kwargs and self.kwarg_only == other.kwarg_only
+
+    def __repr__(self):
+        self.parts = []
+
+        if 
+
 class Signature:
-    def __init__(self, parameters: list[Type], rt: Type):
+    def __init__(self, parameters: SignatureParameters, rt: Type):
         self.parameters = parameters
         self.rt = rt
 
     def __repr__(self):
-        return f"({', '.join(map(repr, self.parameters))}) -> {self.rt!r}"
+        return f"({self.parameters!r}) -> {self.rt!r}"
 
     def __eq__(self, other: Any):
         return isinstance(other, self.__class__) and self.parameters == other.parameters

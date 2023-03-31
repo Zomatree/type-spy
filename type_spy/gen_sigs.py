@@ -4,10 +4,9 @@
 
 from types import ModuleType, FunctionType, UnionType
 from inspect import get_annotations
-from typing import Iterator, get_args, get_origin, TypeVar as _TypeVar, ParamSpec as _ParamSpec, TypeVarTuple as _TypeVarTuple, Callable as _Callable
+from typing import Iterator, get_args, get_origin, TypeVar as _TypeVar, ParamSpec as _ParamSpec, TypeVarTuple as _TypeVarTuple, Callable as _Callable, Any
 import typing
 
-from spec import Any
 from .types import (
     BaseTypeVar,
     Generic,
@@ -65,7 +64,7 @@ def extract_signature(func: FunctionType, path: str) -> Root:
     typevars: list[BaseTypeVar] = []
     rt = Ident("None")
 
-    for key, value in get_annotations(func).items():
+    for key, value in get_annotations(func, eval_str=True).items():
         ty = convert_type(value, typevars)
         if key == "return":
             rt = ty
