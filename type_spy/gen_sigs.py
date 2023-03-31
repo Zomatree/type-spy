@@ -2,25 +2,25 @@
 #
 # SPDX-License-Identifier: MIT
 
-from ast import mod
 from types import ModuleType, FunctionType, UnionType
 from inspect import get_annotations
-from typing import Iterator, get_args, get_origin, TypeVar as _TypeVar
+from typing import Iterator, get_args, get_origin, TypeVar as _TypeVar, ParamSpec as _ParamSpec, TypeVarTuple as _TypeVarTuple, Callable as _Callable
 import typing
 
 from spec import Any
 from .types import (
+    BaseTypeVar,
     Generic,
     Ident,
     List,
     MetaTypeVars,
-    Parameter,
-    Return,
+    ParamSpec,
     Root,
     Signature,
     Type,
     TypeVar,
     Union,
+    TypeVarTuple
 )
 
 __all__ = ("convert_module", "extract_signature", "convert_type", "find_matching")
@@ -61,21 +61,21 @@ def convert_module(
 
 def extract_signature(func: FunctionType, path: str) -> Root:
     name = func.__name__
-    parameters: list[Parameter] = []
-    typevars: list[TypeVar] = []
-    rt = Return(Ident("None"))
+    parameters: list[Type] = []
+    typevars: list[BaseTypeVar] = []
+    rt = Ident("None")
 
     for key, value in get_annotations(func).items():
         ty = convert_type(value, typevars)
         if key == "return":
-            rt = Return(ty)
+            rt = ty
         else:
-            parameters.append(Parameter(ty))
+            parameters.append(ty)
 
     return Root(name, path, func.__doc__, MetaTypeVars(typevars), Signature(parameters, rt))
 
 
-def convert_type(ty: Any, typevars: list[TypeVar]) -> Type:
+def convert_type(ty: Any, typevars: list[BaseTypeVar]) -> Type:
     args = get_args(ty)
     origin = get_origin(ty)
 
@@ -95,6 +95,25 @@ def convert_type(ty: Any, typevars: list[TypeVar]) -> Type:
             typevars.append(tv)
 
         return tv
+
+    elif isinstance(ty, _ParamSpec):
+        ps = ParamSpec(ty.__name__)
+
+        if ps not in typevars:
+            typevars.append(ps)
+
+        return ps
+
+    elif isinstance(ty, _TypeVarTuple):
+        tvt = TypeVarTuple(ty.__name__)
+
+        if tvt not in typevars:
+            typevars.append(tvt)
+
+        return tvt
+
+    elif isinstance(ty, _Callable):
+        return Signature([convert_type(p, typevars) for p in args[0]], convert_type(args[1], typevars))
 
     elif isinstance(ty, list):
         return List([convert_type(v, typevars) for v in ty])

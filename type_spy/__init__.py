@@ -14,7 +14,14 @@ l = lark.Lark(
     r"""
     ident: /\w+/
     generic: ident "[" type ("," type)* "]"
+
     typevar: /[a-zA-Z]+/
+    typevartuple: "*" typevar
+    paramspec: "**" typevar
+
+    type_variable: typevar
+        | typevartuple
+        | paramspec
 
     list: "[" type ("," type)* "]"
 
@@ -22,17 +29,18 @@ l = lark.Lark(
         | generic
         | list
         | union
+        | typevartuple
+        | paramspec
+        | "(" signature ")"
 
     union: type ("|" type)+
 
-    parameter: type
-    return_ty: type
+    signature_parameters: "(" type? ("," type)* ")"
+    signature: signature_parameters ("->" type)?
 
-    signature: "(" parameter? ("," parameter)* ")" ("->" return_ty)?
+    meta_type_variables: "[" type_variable ("," type_variable)* "]"
 
-    meta_generics: "[" typevar ("," typevar)* "]"
-
-    start: meta_generics? signature
+    start: meta_type_variables? signature
 
     %import common.WS
     %ignore WS
@@ -44,41 +52,46 @@ l = lark.Lark(
 
 class SignatureTransformer(lark.Transformer):
     def typevar(self, tokens: list[lark.Token]):
-        (token,) = tokens
-
-        return TypeVar(token.value)
+        return TypeVar(tokens[0].value)
 
     def ident(self, tokens: list[lark.Token]) -> Ident:
-        (token,) = tokens
-
-        return Ident(token.value)
+        return Ident(tokens[0].value)
 
     def generic(self, tokens: list[Type]):
         return Generic(tokens[0], tokens[1:])
 
-    def parameter(self, tokens: list[Type]):
-        return Parameter(tokens[0])
-
     def type(self, tokens: list[Type]):
         return tokens[0]
 
-    def return_ty(self, tokens: list[Type]):
-        return Return(tokens[0])
+    def type_variable(self, tokens: list[TypeVariable]):
+        return tokens[0]
+
+    def signature_parameters(self, tokens: list[Type]):
+        return tokens
+
+    def parens(self, tokens: list[Type]):
+        return tokens[0]
+
+    def typevartuple(self, tokens: list[TypeVar]):
+        return TypeVarTuple(tokens[0].name)
+
+    def paramspec(self, tokens: list[TypeVar]):
+        return ParamSpec(tokens[0].name)
 
     def union(self, tokens: list[Type]):
         return Union(tokens)
 
-    def meta_generics(self, tokens: list[TypeVar]):
+    def meta_type_variables(self, tokens: list[BaseTypeVar]):
         return MetaTypeVars(tokens)
 
-    def signature(self, tokens: list[Parameter | Return]):
-        if tokens and isinstance(tokens[-1], Return):
+    def signature(self, tokens: list[list[Type] | Type]):
+        if tokens and isinstance(tokens[-1], Type):
             rt = tokens[-1]
-            parameters = cast(list[Parameter], tokens[:-1])
+            parameters = cast(list[Type], tokens[0])
 
         else:
-            rt = Return(Ident("None"))
-            parameters = cast(list[Parameter], tokens)
+            rt = Ident("None")
+            parameters = cast(list[Type], tokens)
 
         return Signature(parameters, rt)
 

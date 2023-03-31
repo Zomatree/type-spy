@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: MIT
 
 from __future__ import annotations
-from typing import TypeAlias
+from typing import TypeAlias, Union as _Union
 
 from spec import Any
 
@@ -42,7 +42,7 @@ class List:
         return isinstance(other, self.__class__) and self.values == other.values
 
 
-class TypeVar:
+class BaseTypeVar:
     def __init__(self, name: str) -> None:
         self.name = name
 
@@ -55,6 +55,16 @@ class TypeVar:
     def __hash__(self):
         return hash(self.name)
 
+class TypeVar(BaseTypeVar):
+    pass
+
+class TypeVarTuple(BaseTypeVar):
+    def __repr__(self):
+        return f"*{self.name}"
+
+class ParamSpec(BaseTypeVar):
+    def __repr__(self):
+        return f"**{self.name}"
 
 class Union:
     def __init__(self, tys: list[Type]):
@@ -66,23 +76,11 @@ class Union:
     def __eq__(self, other: Any):
         return isinstance(other, self.__class__) and self.tys == other.tys
 
-
-Type: TypeAlias = Generic | Ident | List | TypeVar | Union
-
-
-class Parameter:
-    def __init__(self, ty: Type):
-        self.ty = ty
-
-    def __repr__(self):
-        return repr(self.ty)
-
-    def __eq__(self, other: Any):
-        return isinstance(other, self.__class__) and self.ty == other.ty
-
+TypeVariable: TypeAlias = TypeVar | TypeVarTuple | ParamSpec
+Type: TypeAlias = _Union[Generic, Ident, List, BaseTypeVar, Union, "Signature"]
 
 class MetaTypeVars:
-    def __init__(self, generics: list[TypeVar]):
+    def __init__(self, generics: list[BaseTypeVar]):
         self.generics = generics
 
     def __repr__(self):
@@ -91,20 +89,8 @@ class MetaTypeVars:
     def __eq__(self, other: Any):
         return isinstance(other, self.__class__) and self.generics == other.generics
 
-
-class Return:
-    def __init__(self, ty: Type):
-        self.ty = ty
-
-    def __repr__(self):
-        return repr(self.ty)
-
-    def __eq__(self, other: Any):
-        return isinstance(other, self.__class__) and self.ty == other.ty
-
-
 class Signature:
-    def __init__(self, parameters: list[Parameter], rt: Return):
+    def __init__(self, parameters: list[Type], rt: Type):
         self.parameters = parameters
         self.rt = rt
 
@@ -129,8 +115,8 @@ class Root:
         self.docstring = docstring
         self.typevars = typevars
         self.signature = signature
-        self._parameters = remap_typevars(self.typevars.generics, self.signature.parameters)
-        self._return = Return(remap_typevars(self.typevars.generics, [Parameter(self.signature.rt.ty)])[0].ty)
+        self._parameters = normalize_typevars(self.typevars.generics, self.signature.parameters)
+        self._return = normalize_typevars(self.typevars.generics, [self.signature.rt])[0]
 
     def __repr__(self):
         return f"{self.typevars!r} {self.signature!r}"
@@ -143,24 +129,31 @@ class Root:
         )
 
 
-def remap_typevars(generics: list[TypeVar], parameters: list[Parameter]) -> list[Parameter]:
-    typevar_map = {old: TypeVar(str(i)) for i, old in enumerate(generics)}
+def normalize_typevars(generics: list[BaseTypeVar], parameters: list[Type]) -> list[Type]:
+    typevar_map = {old: old.__class__(str(i)) for i, old in enumerate(generics)}
 
-    return [Parameter(remap_types(typevar_map, param.ty)) for param in parameters]
+    return [remap_types(typevar_map, param) for param in parameters]
 
 
-def remap_types(typevar_map: dict[TypeVar, TypeVar], type: Type):
-    if isinstance(type, Generic):
-        return Generic(type.ty, [remap_types(typevar_map, arg) for arg in type.generics])
+def remap_types(typevar_map: dict[BaseTypeVar, BaseTypeVar], type: Type):
+    match type:
+        case Generic():
+            return Generic(type.ty, [remap_types(typevar_map, arg) for arg in type.generics])
 
-    elif isinstance(type, TypeVar):
-        return typevar_map[type]
+        case BaseTypeVar():
+            return typevar_map[type]
 
-    elif isinstance(type, List):
-        return List([remap_types(typevar_map, arg) for arg in type.values])
+        case List():
+            return List([remap_types(typevar_map, arg) for arg in type.values])
 
-    elif isinstance(type, Union):
-        return Union([remap_types(typevar_map, arg) for arg in type.tys])
+        case Union():
+            return Union([remap_types(typevar_map, arg) for arg in type.tys])
 
-    else:
-        return type
+        case Signature():
+            return Signature(
+                [remap_types(typevar_map, arg) for arg in type.parameters],
+                remap_types(typevar_map, type.rt)
+            )
+
+        case Ident():
+            return type
