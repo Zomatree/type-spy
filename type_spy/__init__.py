@@ -24,18 +24,21 @@ l = lark.Lark(
         | paramspec
 
     list: "[" type ("," type)* "]"
+    union: type ("|" type)+
 
     type: ident
         | generic
         | list
         | union
-        | typevartuple
-        | paramspec
         | "(" signature ")"
 
-    union: type ("|" type)+
+    pos_only_params: type ("," type)* "," "/"
+    params: type? ("," type)*
+    vargs: "*" type
+    kwargs: "**" type
+    keyword_only_params: type? ("," type)*
 
-    signature_parameters: "(" type? ("," type)* ")"
+    signature_parameters: "(" pos_only_params? params vargs? kwargs? keyword_only_params? ")"
     signature: signature_parameters ("->" type)?
 
     meta_type_variables: "[" type_variable ("," type_variable)* "]"

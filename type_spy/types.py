@@ -156,4 +156,8 @@ def remap_types(typevar_map: dict[BaseTypeVar, BaseTypeVar], type: Type):
             )
 
         case Ident():
+            for k, v in typevar_map.items():
+                if k.name == type.ty:
+                    return v
+
             return type
