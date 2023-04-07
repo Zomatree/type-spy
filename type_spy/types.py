@@ -94,20 +94,39 @@ class MetaTypeVars:
         return isinstance(other, self.__class__) and self.generics == other.generics
 
 class SignatureParameters:
-    def __init__(self, pos_only: list[Type], params: list[Type], vargs: Type | None, kwargs: Type | None, kwarg_only: list[Type]) -> None:
+    def __init__(self, pos_only: list[Type], params: list[Type], vargs: Type | None, kwarg_only: list[Type], kwargs: Type | None) -> None:
         self.pos_only = pos_only
         self.params = params
         self.vargs = vargs
-        self.kwargs = kwargs
         self.kwarg_only = kwarg_only
+        self.kwargs = kwargs
 
     def __eq__(self, other: Any):
         return isinstance(other, self.__class__) and self.pos_only == other.pos_only and self.params == other.params and self.vargs == other.vargs and self.kwargs == other.kwargs and self.kwarg_only == other.kwarg_only
 
     def __repr__(self):
-        self.parts = []
+        parts: list[str] = []
 
-        if 
+        if pos_only := self.pos_only:
+            for arg in pos_only:
+                parts.append(repr(arg))
+
+            parts.append("/")
+
+        parts.extend(map(repr, self.params))
+
+        if vargs := self.vargs:
+            parts.append(f"*{vargs!r}")
+
+        if not self.vargs and self.kwarg_only:
+            parts.append("*")
+
+        parts.extend(map(repr, self.kwarg_only))
+
+        if kwargs := self.kwargs:
+            parts.append(f"**{kwargs!r}")
+
+        return ", ".join(parts)
 
 class Signature:
     def __init__(self, parameters: SignatureParameters, rt: Type):
@@ -121,7 +140,7 @@ class Signature:
         return isinstance(other, self.__class__) and self.parameters == other.parameters
 
 
-class Root:
+class Function:
     def __init__(
         self,
         name: str,
@@ -135,8 +154,11 @@ class Root:
         self.docstring = docstring
         self.typevars = typevars
         self.signature = signature
-        self._parameters = normalize_typevars(self.typevars.generics, self.signature.parameters)
-        self._return = normalize_typevars(self.typevars.generics, [self.signature.rt])[0]
+
+        typevar_map = {old: old.__class__(str(i)) for i, old in enumerate(self.typevars.generics)}
+
+        self._parameters = normalize_typevars(typevar_map, self.signature.parameters)
+        self._return = remap_types(typevar_map, self.signature.rt)
 
     def __repr__(self):
         return f"{self.typevars!r} {self.signature!r}"
@@ -148,11 +170,22 @@ class Root:
             and self._return == other._return
         )
 
+Value = Function
 
-def normalize_typevars(generics: list[BaseTypeVar], parameters: list[Type]) -> list[Type]:
-    typevar_map = {old: old.__class__(str(i)) for i, old in enumerate(generics)}
+class Module:
+    def __init__(self, name: str, attributes: dict[str, Value]):
+        self.name = name
+        self.attributes = attributes
 
-    return [remap_types(typevar_map, param) for param in parameters]
+def normalize_typevars(typevar_map: dict[BaseTypeVar, BaseTypeVar], parameters: SignatureParameters) -> SignatureParameters:
+
+    return SignatureParameters(
+        [remap_types(typevar_map, param) for param in parameters.pos_only],
+        [remap_types(typevar_map, param) for param in parameters.params],
+        remap_types(typevar_map, parameters.vargs) if parameters.vargs else None,
+        [remap_types(typevar_map, param) for param in parameters.kwarg_only],
+        remap_types(typevar_map, parameters.kwargs) if parameters.kwargs else None
+    )
 
 
 def remap_types(typevar_map: dict[BaseTypeVar, BaseTypeVar], type: Type):
@@ -170,10 +203,7 @@ def remap_types(typevar_map: dict[BaseTypeVar, BaseTypeVar], type: Type):
             return Union([remap_types(typevar_map, arg) for arg in type.tys])
 
         case Signature():
-            return Signature(
-                [remap_types(typevar_map, arg) for arg in type.parameters],
-                remap_types(typevar_map, type.rt)
-            )
+            return Signature(normalize_typevars(typevar_map, type.parameters), remap_types(typevar_map, type.rt))
 
         case Ident():
             for k, v in typevar_map.items():

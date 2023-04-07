@@ -41,7 +41,7 @@ l = lark.Lark(
 
     return_ty: type
 
-    signature_parameters: "(" pos_only_params? params vargs? kwargs? keyword_only_params? ")"
+    signature_parameters: "(" pos_only_params? "," params "," vargs? "," keyword_only_params? "," kwargs? ")"
     signature: signature_parameters ("->" return_ty)?
 
     meta_type_variables: "[" type_variable ("," type_variable)* "]"
@@ -124,7 +124,7 @@ class SignatureTransformer(lark.Transformer):#
 
         assert isinstance(sig, Signature)
 
-        return Root("<input>", "", "", typevars, sig)
+        return Function("<input>", "", "", typevars, sig)
 
 
 def parse_signature(sig: str):

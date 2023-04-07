@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: MIT
 
+import inspect
 from types import ModuleType, FunctionType, UnionType
 from inspect import get_annotations
 from typing import Iterator, get_args, get_origin, TypeVar as _TypeVar, ParamSpec as _ParamSpec, TypeVarTuple as _TypeVarTuple, Callable as _Callable, Any
@@ -14,8 +15,9 @@ from .types import (
     List,
     MetaTypeVars,
     ParamSpec,
-    Root,
+    Function,
     Signature,
+    SignatureParameters,
     Type,
     TypeVar,
     Union,
@@ -29,11 +31,11 @@ def convert_module(
     module: ModuleType,
     already_done: list[ModuleType] | None = None,
     parents: list[ModuleType] | None = None,
-) -> list[Root]:
+) -> list[Function]:
     already_done = already_done or []
     parents = parents or []
 
-    types: list[Root] = []
+    types: list[Function] = []
 
     for key in dir(module):
         if key.startswith("_"):  # attempt to remove private stuff
@@ -57,22 +59,42 @@ def convert_module(
 
     return types
 
+class Unknown:
+    pass
 
-def extract_signature(func: FunctionType, path: str) -> Root:
+def extract_signature(func: FunctionType, path: str) -> Function:
     name = func.__name__
-    parameters: list[Type] = []
     typevars: list[BaseTypeVar] = []
-    rt = Ident("None")
 
-    for key, value in get_annotations(func, eval_str=True).items():
-        ty = convert_type(value, typevars)
-        if key == "return":
-            rt = ty
-        else:
-            parameters.append(ty)
+    sig = inspect.signature(func)
+    pos_only = []
+    params = []
+    vargs = None
+    kwargs = None
+    kwarg_only = []
 
-    return Root(name, path, func.__doc__, MetaTypeVars(typevars), Signature(parameters, rt))
+    for param in sig.parameters.values():
+        ty = param.annotation if param.annotation is not inspect._empty else Unknown
 
+        if param.kind is param.POSITIONAL_ONLY:
+            pos_only.append(convert_type(param.annotation, typevars))
+
+        elif param.kind is param.POSITIONAL_OR_KEYWORD:
+            params.append(convert_type(param.annotation, typevars))
+
+        elif param.kind is param.VAR_POSITIONAL:
+            vargs = convert_type(param.annotation, typevars)
+
+        elif param.kind is param.VAR_KEYWORD:
+            kwargs = convert_type(param.annotation, typevars)
+
+        elif param.kind is param.KEYWORD_ONLY:
+            kwarg_only.append(convert_type(param.annotation, typevars))
+
+    parameters = SignatureParameters(pos_only, params, vargs, kwarg_only, kwargs)
+    signature = Signature(parameters, convert_type(sig.return_annotation, typevars))
+
+    return Function(name, path, func.__doc__, MetaTypeVars(typevars), signature)
 
 def convert_type(ty: Any, typevars: list[BaseTypeVar]) -> Type:
     args = get_args(ty)
@@ -80,12 +102,6 @@ def convert_type(ty: Any, typevars: list[BaseTypeVar]) -> Type:
 
     if origin is typing.Union or origin is UnionType:
         return Union([convert_type(arg, typevars) for arg in args])
-
-    elif args:
-        return Generic(
-            convert_type(origin, typevars),
-            [convert_type(arg, typevars) for arg in args],
-        )
 
     elif isinstance(ty, _TypeVar):
         tv = TypeVar(ty.__name__)
@@ -112,10 +128,18 @@ def convert_type(ty: Any, typevars: list[BaseTypeVar]) -> Type:
         return tvt
 
     elif isinstance(ty, _Callable):
-        return Signature([convert_type(p, typevars) for p in args[0]], convert_type(args[1], typevars))
+        return Signature(SignatureParameters([], [convert_type(ty, typevars) for ty in args[0]], None, [], None), convert_type(args[1], typevars))
+
+
 
     elif isinstance(ty, list):
         return List([convert_type(v, typevars) for v in ty])
+
+    elif args:
+        return Generic(
+            convert_type(origin, typevars),
+            [convert_type(arg, typevars) for arg in args],
+        )
 
     else:
         if ty is None:
