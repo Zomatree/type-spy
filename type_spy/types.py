@@ -170,7 +170,7 @@ class Function:
             and self._return == other._return
         )
 
-Value = Function
+Value = Function | TypeVar | None
 
 class Module:
     def __init__(self, name: str, attributes: dict[str, Value]):

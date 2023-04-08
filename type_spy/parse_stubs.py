@@ -23,13 +23,23 @@ class NodeVisitor(ast.NodeVisitor):
         self.attributes: dict[str, Value] = {}
         self.scopes: Scopes = Namespace(name)
 
-        self.current_scopes: list[tuple[str, Scopes]] = []
+        self.current_scopes: list[tuple[str, Scopes]] = [("", self.scopes)]
 
     def add_to_current_scope(self, name: str, value: Value):
         self.current_scopes[-1][1][name] = value
 
-    def get_from_current_scope(self, name: str) -> Value | Scopes:
-        return self.current_scopes[-1][1][name]
+    def get_variable(self, name: str) -> Value | Scopes:
+        print(self.current_scopes)
+
+        for scope in self.current_scopes[::-1]:
+            vars = scope[1]
+
+            try:
+                return vars[name]
+            except KeyError:
+                pass
+
+        raise Exception(f"cannot find variable {name}")
 
     @contextmanager
     def enter_scope(self, name: str):
@@ -67,7 +77,7 @@ class NodeVisitor(ast.NodeVisitor):
                 attrs.append(expr.attr)
                 expr = expr.value
 
-            value = self.get_from_current_scope(attrs[-1])
+            value = self.get_variable(attrs[-1])
 
             for attr_name in attrs[:-1]:
                 if isinstance(value, Namespace):
@@ -79,14 +89,49 @@ class NodeVisitor(ast.NodeVisitor):
 
     def to_value(self, expr: ast.expr) -> Value:
         match expr:
+            case ast.Name():
+                target = self.get_variable(expr.id)
+
             case ast.Call():
                 target = self.to_value(expr.func)
 
-            case ast.Attribute:
-                
+            case ast.Attribute():
+                t = self.flatten_attribute(expr)
+
+                if type(t) is Namespace:
+                    raise
+
+                target = cast(Value, t)
+
+            case _:
+                raise Exception(f"{expr}")
+
+        if type(target) is Namespace:
+            raise
+
+        return cast(Value, target)
 
     def to_type(self, expr: ast.expr | None, found_typevars: dict[str, BaseTypeVar]) -> Type:
-        ...
+        match expr:
+            case ast.Name():
+                target = self.get_variable(expr.id)
+
+            case ast.Attribute():
+                target = self.flatten_attribute(expr)
+
+            case None:
+                target = expr
+
+            case _:
+                raise Exception(f"{expr}")
+
+        if isinstance(target, TypeVar):
+            found_typevars[target.name] = target
+
+        elif type(target) is Namespace:
+            raise
+
+        return cast(Type, target)
 
     def visit_Import(self, node: ast.Import):
         for alias in node.names:
